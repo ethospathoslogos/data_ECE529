@@ -1,6 +1,7 @@
 #include "address_map_arm.h"
 #include <time.h>
 #include <stdlib.h>
+#include <stdio.h>  // For sprintf
 
 #define KEY_BASE              0xFF200050
 #define VIDEO_IN_BASE         0xFF203060
@@ -19,34 +20,44 @@ int main(void)
     // Enable video capture initially
     *(Video_In_DMA_ptr + 3) = 0x4;
     
-    // Display timestamp once on the character buffer
-    char buffer[30];
+    // Display timestamp once on the character buffer at (x=10, y=10)
+    char timeStr[30];
     unsigned int offset = (y << 7) + x;
     time_t timer;
     struct tm* tm_info;
     time(&timer);
     tm_info = localtime(&timer);
-    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+    strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", tm_info);
     
-    char *p = buffer;
+    char *p = timeStr;
     while (*p) {
         *((volatile char *)(0xC9000000 + offset)) = *p;
         p++;
         offset++;
     }
 
-    // Main loop: wait for key press to capture picture
+    // Main loop: wait for key press to capture picture and update picture counter display
     while (1) {
         if (*KEY_ptr != 0) {            // Check if any KEY is pressed
             *(Video_In_DMA_ptr + 3) = 0x0;  // Disable video to capture the frame
             counter++;                // Increment picture counter
 
-            // (Optional) Display or log the current counter value here
+            // Prepare the counter string and display it on the character buffer
+            char counterStr[20];
+            sprintf(counterStr, "Pics: %d", counter);
+            // For example, display at row 20, column 10 (adjust as needed)
+            unsigned int offset_counter = ((20) << 7) + 10;
+            char *cp = counterStr;
+            while (*cp) {
+                *((volatile char *)(0xC9000000 + offset_counter)) = *cp;
+                cp++;
+                offset_counter++;
+            }
 
             // Wait for the KEY to be released
             while (*KEY_ptr != 0);
-            
-            // Re-enable video capture for next frame
+
+            // Re-enable video capture for the next frame
             *(Video_In_DMA_ptr + 3) = 0x4;
         }
     }
