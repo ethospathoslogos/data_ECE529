@@ -9,13 +9,14 @@
 
 int main(void)
 {
-    volatile int * KEY_ptr = (int *) KEY_BASE;
-    volatile int * Video_In_DMA_ptr = (int *) VIDEO_IN_BASE;
-    volatile short * Video_Mem_ptr = (short *) FPGA_ONCHIP_BASE;
-
+    volatile int *KEY_ptr = (int *) KEY_BASE;
+    volatile int *Video_In_DMA_ptr = (int *) VIDEO_IN_BASE;
+    volatile short *Video_Mem_ptr = (short *) FPGA_ONCHIP_BASE;
+    
     int x = 10;
     int y = 10;
-    int counter = 0;  // Counter to keep track of the number of pictures taken
+    int counter = 0;       // Counter for number of pictures taken
+    int flip_mode = 0;     // 0 = normal mode, 1 = mirror-flipped mode
 
     // Enable video capture initially
     *(Video_In_DMA_ptr + 3) = 0x4;
@@ -24,66 +25,86 @@ int main(void)
     char timeStr[30];
     unsigned int offset = (y << 7) + x;  // Character buffer address calculation
     time_t timer;
-    struct tm* tm_info;
+    struct tm *tm_info;
     time(&timer);
     tm_info = localtime(&timer);
     strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", tm_info);
     
     char *p = timeStr;
-    while (*p) {
+    while (*p)
+    {
         *((volatile char *)(0xC9000000 + offset)) = *p;
         p++;
         offset++;
     }
-
-    // Main loop: check for key press events
-    while (1) {
-        int keys = *KEY_ptr; // Read the key status (each bit corresponds to a different key)
-        if (keys != 0) {
-            // Check if KEY3 is pressed (bit mask 0x8)
-            if (keys & 0x8) {
-                // Disable video capture to freeze the frame
+    
+    // Main loop: handle key events and picture capture
+    while (1)
+    {
+        int keys = *KEY_ptr;  // Read the key status
+        if (keys != 0)
+        {
+            // If KEY3 is pressed (mask 0x8), toggle mirror-flip mode
+            if (keys & 0x8)
+            {
+                // Disable video capture to freeze the current frame
                 *(Video_In_DMA_ptr + 3) = 0x0;
                 // Wait until KEY3 is released
                 while (*KEY_ptr & 0x8);
-
-                // Mirror flip the image horizontally for a 640x480 image using while loops:
-                int row = 0;
-                while (row < 480) {
-                    int col = 0;
-                    while (col < 320) {  // 320 is half of 640
-                        int left_index = row * 640 + col;
-                        int right_index = row * 640 + (639 - col);
-                        short temp = *(Video_Mem_ptr + left_index);
-                        *(Video_Mem_ptr + left_index) = *(Video_Mem_ptr + right_index);
-                        *(Video_Mem_ptr + right_index) = temp;
-                        col++;
-                    }
-                    row++;
+                // Toggle flip mode
+                if (flip_mode == 0)
+                {
+                    flip_mode = 1;
                 }
-
-                // Re-enable video capture after mirror flip
+                else
+                {
+                    flip_mode = 0;
+                }
+                // Re-enable video capture after toggling mode
                 *(Video_In_DMA_ptr + 3) = 0x4;
             }
-            else {  // For any other key press, perform normal picture capture
-                *(Video_In_DMA_ptr + 3) = 0x0;  // Disable video to capture the frame
-                while (*KEY_ptr != 0);          // Wait for key release
+            else  // For any other key press, perform picture capture
+            {
+                // Disable video capture to freeze the frame
+                *(Video_In_DMA_ptr + 3) = 0x0;
+                // Wait for all keys to be released
+                while (*KEY_ptr != 0);
                 
                 counter++;  // Increment picture counter
-
-                // Prepare the counter string and display it on the character buffer at (x=10, y=20)
+                
+                // If mirror-flip mode is active, flip the captured image permanently
+                if (flip_mode)
+                {
+                    int row = 0;
+                    while (row < 480)
+                    {
+                        int col = 0;
+                        while (col < 320)  // 320 iterations = half of 640 pixels per row
+                        {
+                            int left_index = row * 640 + col;
+                            int right_index = row * 640 + (639 - col);
+                            short temp = *(Video_Mem_ptr + left_index);
+                            *(Video_Mem_ptr + left_index) = *(Video_Mem_ptr + right_index);
+                            *(Video_Mem_ptr + right_index) = temp;
+                            col++;
+                        }
+                        row++;
+                    }
+                }
+                
+                // Display the updated picture counter on the character buffer (row 20, col 10)
                 char counterStr[20];
                 sprintf(counterStr, "Pics: %d", counter);
-                unsigned int offset_counter = (20 << 7) + 10;  // For example, row 20, column 10
+                unsigned int offset_counter = (20 << 7) + 10;
                 char *cp = counterStr;
-                while (*cp) {
+                while (*cp)
+                {
                     *((volatile char *)(0xC9000000 + offset_counter)) = *cp;
                     cp++;
                     offset_counter++;
                 }
-
-                // Ensure key is released and re-enable video capture for the next frame
-                while (*KEY_ptr != 0);
+                
+                // Re-enable video capture for the next frame
                 *(Video_In_DMA_ptr + 3) = 0x4;
             }
         }
