@@ -22,7 +22,7 @@ int main(void)
     
     // Display timestamp once on the character buffer at (x=10, y=10)
     char timeStr[30];
-    unsigned int offset = (y << 7) + x;  // Assuming the character buffer layout remains the same
+    unsigned int offset = (y << 7) + x;  // Character buffer address calculation
     time_t timer;
     struct tm* tm_info;
     time(&timer);
@@ -47,31 +47,34 @@ int main(void)
                 // Wait until KEY3 is released
                 while (*KEY_ptr & 0x8);
 
-                // Mirror flip the image horizontally for a 640x480 image:
-                // For each row (0 to 479), swap the pixel at column 'col' with the pixel at (639 - col)
-                for (int row = 0; row < 480; row++) {
-                    for (int col = 0; col < 320; col++) {  // 320 is half of 640
+                // Mirror flip the image horizontally for a 640x480 image using while loops:
+                int row = 0;
+                while (row < 480) {
+                    int col = 0;
+                    while (col < 320) {  // 320 is half of 640
                         int left_index = row * 640 + col;
                         int right_index = row * 640 + (639 - col);
                         short temp = *(Video_Mem_ptr + left_index);
                         *(Video_Mem_ptr + left_index) = *(Video_Mem_ptr + right_index);
                         *(Video_Mem_ptr + right_index) = temp;
+                        col++;
                     }
+                    row++;
                 }
 
                 // Re-enable video capture after mirror flip
                 *(Video_In_DMA_ptr + 3) = 0x4;
             }
-            else {  // If any other key is pressed, perform the normal picture capture
+            else {  // For any other key press, perform normal picture capture
                 *(Video_In_DMA_ptr + 3) = 0x0;  // Disable video to capture the frame
                 while (*KEY_ptr != 0);          // Wait for key release
-
+                
                 counter++;  // Increment picture counter
 
                 // Prepare the counter string and display it on the character buffer at (x=10, y=20)
                 char counterStr[20];
                 sprintf(counterStr, "Pics: %d", counter);
-                unsigned int offset_counter = (20 << 7) + 10;  // For example, row 20, col 10
+                unsigned int offset_counter = (20 << 7) + 10;  // For example, row 20, column 10
                 char *cp = counterStr;
                 while (*cp) {
                     *((volatile char *)(0xC9000000 + offset_counter)) = *cp;
