@@ -1,6 +1,3 @@
-
-
-
 #include "address_map_arm.h"
 #include <time.h>
 #include <stdlib.h>
@@ -25,7 +22,7 @@ int main(void)
     
     // Display timestamp once on the character buffer at (x=10, y=10)
     char timeStr[30];
-    unsigned int offset = (y << 7) + x;
+    unsigned int offset = (y << 7) + x;  // Assuming the character buffer layout remains the same
     time_t timer;
     struct tm* tm_info;
     time(&timer);
@@ -39,31 +36,53 @@ int main(void)
         offset++;
     }
 
-    // Main loop: wait for key press to capture picture and update picture counter display
+    // Main loop: check for key press events
     while (1) {
-        if (*KEY_ptr != 0) {            // Check if any KEY is pressed
-            *(Video_In_DMA_ptr + 3) = 0x0;  // Disable video to capture the frame
-			while (*KEY_ptr != 0);		// wait for pushbutton KEY release
-			
-            counter++;                // Increment picture counter
+        int keys = *KEY_ptr; // Read the key status (each bit corresponds to a different key)
+        if (keys != 0) {
+            // Check if KEY3 is pressed (bit mask 0x8)
+            if (keys & 0x8) {
+                // Disable video capture to freeze the frame
+                *(Video_In_DMA_ptr + 3) = 0x0;
+                // Wait until KEY3 is released
+                while (*KEY_ptr & 0x8);
 
-            // Prepare the counter string and display it on the character buffer
-            char counterStr[20];
-            sprintf(counterStr, "Pics: %d", counter);
-            // For example, display at row 20, column 10 (adjust as needed)
-            unsigned int offset_counter = ((20) << 7) + 10;
-            char *cp = counterStr;
-            while (*cp) {
-                *((volatile char *)(0xC9000000 + offset_counter)) = *cp;
-                cp++;
-                offset_counter++;
+                // Mirror flip the image horizontally for a 640x480 image:
+                // For each row (0 to 479), swap the pixel at column 'col' with the pixel at (639 - col)
+                for (int row = 0; row < 480; row++) {
+                    for (int col = 0; col < 320; col++) {  // 320 is half of 640
+                        int left_index = row * 640 + col;
+                        int right_index = row * 640 + (639 - col);
+                        short temp = *(Video_Mem_ptr + left_index);
+                        *(Video_Mem_ptr + left_index) = *(Video_Mem_ptr + right_index);
+                        *(Video_Mem_ptr + right_index) = temp;
+                    }
+                }
+
+                // Re-enable video capture after mirror flip
+                *(Video_In_DMA_ptr + 3) = 0x4;
             }
+            else {  // If any other key is pressed, perform the normal picture capture
+                *(Video_In_DMA_ptr + 3) = 0x0;  // Disable video to capture the frame
+                while (*KEY_ptr != 0);          // Wait for key release
 
-            // Wait for the KEY to be released
-            while (*KEY_ptr != 0);
+                counter++;  // Increment picture counter
 
-            // Re-enable video capture for the next frame
-            *(Video_In_DMA_ptr + 3) = 0x4;
+                // Prepare the counter string and display it on the character buffer at (x=10, y=20)
+                char counterStr[20];
+                sprintf(counterStr, "Pics: %d", counter);
+                unsigned int offset_counter = (20 << 7) + 10;  // For example, row 20, col 10
+                char *cp = counterStr;
+                while (*cp) {
+                    *((volatile char *)(0xC9000000 + offset_counter)) = *cp;
+                    cp++;
+                    offset_counter++;
+                }
+
+                // Ensure key is released and re-enable video capture for the next frame
+                while (*KEY_ptr != 0);
+                *(Video_In_DMA_ptr + 3) = 0x4;
+            }
         }
     }
     
