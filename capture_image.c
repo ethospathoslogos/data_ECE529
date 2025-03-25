@@ -17,17 +17,17 @@ int main(void)
     int x_counter   = 10, y_counter   = 20;   // "Pics" counter display area
     
     // Mode counter:
-    // 0 => update timestamp,
+    // 0 => update & display timestamp,
     // 1 => vertical flip,
     // 2 => horizontal mirror,
-    // 5 => convert to black and white.
-    // (The counter is incremented via KEY2 and is not reset.)
+    // 5 => black and white conversion.
+    // The counter is incremented by KEY2 (and is never reset).
     int counter = 0;
     
     // Initially, enable video capture.
     *(Video_In_DMA_ptr + 3) = 0x4;
     
-    // Display the initial timestamp (since counter is 0).
+    // Initially display the timestamp if counter == 0.
     if (counter == 0)
     {
         char timeStr[30];
@@ -49,7 +49,7 @@ int main(void)
         }
     }
     
-    // Display the initial counter ("Pics: 0") at (10,20).
+    // Display the initial "Pics" counter at (10,20).
     char counterStr[20];
     sprintf(counterStr, "Pics: %d", counter);
     unsigned int offset_counter = (y_counter << 7) + x_counter;
@@ -66,19 +66,20 @@ int main(void)
     
     while (1)
     {
-        // --- KEY3 branch: Capture (freeze) frame and apply effect ---
+        // --- KEY3 branch: capture the image and apply effect (and clear timestamp if needed) ---
         if ((*KEY_ptr) & 0x8)  // KEY3 pressed
         {
-            // Disable video capture (freeze the frame).
+            // Disable video capture to freeze the current frame.
             *(Video_In_DMA_ptr + 3) = 0x0;
+            
             // Wait until KEY3 is released.
             while ((*KEY_ptr) & 0x8);
             
-            // Apply effect based on the current counter.
+            // If counter is 0, update and display the timestamp.
+            // Otherwise, clear the timestamp area.
+            unsigned int offset_timestamp = (y_timestamp << 7) + x_timestamp;
             if (counter == 0)
             {
-                // Mode 0: Update and display the timestamp.
-                unsigned int offset_timestamp = (y_timestamp << 7) + x_timestamp;
                 char timeStr[30];
                 time_t timer;
                 struct tm *tm_info;
@@ -96,11 +97,25 @@ int main(void)
                     }
                 }
             }
-            else if (counter == 1)
+            else
             {
-                // Mode 1: Flip the image vertically (upside down).
+                // Clear the timestamp area by writing spaces (assume 30 characters).
+                int i = 0;
+                unsigned int off = offset_timestamp;
+                while (i < 30)
+                {
+                    *((volatile char *)(0xC9000000 + off)) = ' ';
+                    i++;
+                    off++;
+                }
+            }
+            
+            // Apply image effect based on counter.
+            if (counter == 1)
+            {
+                // Vertical flip: swap each row in the top half with its corresponding row in the bottom half.
                 int row = 0;
-                while (row < 240)  // Process top half (0 to 239)
+                while (row < 240)  // For 480 rows, process top half rows 0 to 239.
                 {
                     int col = 0;
                     while (col < 640)
@@ -117,12 +132,12 @@ int main(void)
             }
             else if (counter == 2)
             {
-                // Mode 2: Mirror the image horizontally.
+                // Horizontal mirror: swap pixels from left half with right half.
                 int row = 0;
                 while (row < 480)
                 {
                     int col = 0;
-                    while (col < 320)  // Process half the columns (0 to 319)
+                    while (col < 320)  // For each row, process columns 0 to 319.
                     {
                         int index_left = row * 640 + col;
                         int index_right = row * 640 + (639 - col);
@@ -136,7 +151,7 @@ int main(void)
             }
             else if (counter == 5)
             {
-                // Mode 5: Convert the image to black and white (grayscale).
+                // Convert the image to black and white (grayscale).
                 int row = 0;
                 while (row < 480)
                 {
@@ -156,7 +171,7 @@ int main(void)
                         int g8 = (green * 255) / 63;
                         int b8 = (blue * 255) / 31;
                         
-                        // Compute grayscale using weighted average.
+                        // Compute grayscale value using a weighted average.
                         int gray8 = (77 * r8 + 150 * g8 + 29 * b8) / 256;
                         
                         // Convert back to RGB565.
@@ -171,21 +186,23 @@ int main(void)
                     row++;
                 }
             }
-            // After applying the effect, the video remains disabled (frozen image).
+            // The processed image remains frozen (video remains disabled).
         }
         
-        // --- KEY2 branch: Re-enable video and update counter ---
+        // --- KEY2 branch: re-enable video and update counter ---
         if ((*KEY_ptr) & 0x4)  // KEY2 pressed
         {
             // Re-enable video capture.
             *(Video_In_DMA_ptr + 3) = 0x4;
+            
             // Wait until KEY2 is released.
             while ((*KEY_ptr) & 0x4);
             
-            // Increment the counter (the counter is not reset; it keeps accumulating).
+            // Increment the counter (counter is not reset; it only increases).
             counter++;
             
             // Update the "Pics" counter display.
+            char counterStr[20];
             sprintf(counterStr, "Pics: %d", counter);
             offset_counter = (y_counter << 7) + x_counter;
             {
