@@ -1,5 +1,5 @@
 #include <time.h>
-#include <stdio.h>  // For sprintf
+#include <stdio.h>   // For sprintf
 #include <stdlib.h>
 
 #define KEY_BASE              0xFF200050
@@ -8,9 +8,9 @@
 
 int main(void)
 {
-    volatile int *KEY_ptr           = (int *) KEY_BASE;
-    volatile int *Video_In_DMA_ptr  = (int *) VIDEO_IN_BASE;
-    volatile short *Video_Mem_ptr   = (short *) FPGA_ONCHIP_BASE;
+    volatile int *KEY_ptr           = (int *)KEY_BASE;
+    volatile int *Video_In_DMA_ptr  = (int *)VIDEO_IN_BASE;
+    volatile short *Video_Mem_ptr   = (short *)FPGA_ONCHIP_BASE;
     
     int x, y;
     putenv("TZ=EST5EDT");
@@ -18,39 +18,38 @@ int main(void)
     
     x = 10;
     y = 10;
-    int counter = 1; // Counter to keep track of the number of pictures taken
+    int counter = 0;  // Start with counter 0 so the timestamp shows
     
     // Enable video capture initially
     *(Video_In_DMA_ptr + 3) = 0x4;
     
-    // Display timestamp once on the character buffer at (x=10, y=10)
+    // Display the timestamp if counter is 0 (at row 10, col 10)
     char timeStr[30];
-    unsigned int offset = (y << 7) + x;  // Calculate character buffer address
+    unsigned int offset = (y << 7) + x;  // Character buffer address for timestamp
     time_t timer;
     struct tm *tm_info;
     time(&timer);
     tm_info = localtime(&timer);
     strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", tm_info);
     
-    // Print the timestamp (initialize pointer each time)
     {
         char *p = timeStr;
-        unsigned int off = offset; 
-        while (*p) {
+        unsigned int off = offset;
+        while(*p) {
             *((volatile char *)(0xC9000000 + off)) = *p;
             p++;
             off++;
         }
     }
     
-    // Prepare and display the counter string at (x=10, y=20)
+    // Prepare and display the counter string (at row 20, col 10)
     char counterStr[20];
     sprintf(counterStr, "Pics: %d", counter);
-    unsigned int offset_counter = (20 << 7) + 10;  // For example, row 20, column 10
+    unsigned int offset_counter = (20 << 7) + 10;
     {
         char *cp = counterStr;
         unsigned int offc = offset_counter;
-        while (*cp) {
+        while(*cp) {
             *((volatile char *)(0xC9000000 + offc)) = *cp;
             cp++;
             offc++;
@@ -59,48 +58,56 @@ int main(void)
     
     while (1)
     {
-        // When KEY3 is pressed, disable video and update the timestamp.
-        if ((*KEY_ptr) & 0x8)  // KEY3 pressed
+        // If KEY3 is pressed, disable video capture.
+        if ((*KEY_ptr) & 0x8)
         {
             *(Video_In_DMA_ptr + 3) = 0x0;  // Disable video capture
-            
-            // Wait until KEY3 is released
+            // Wait until KEY3 is released.
             while ((*KEY_ptr) & 0x8);
             
-            // Recompute offset for timestamp display at (x=10, y=10)
+            // Recompute offset for timestamp display area (row 10, col 10)
             offset = (y << 7) + x;
-            time(&timer);
-            tm_info = localtime(&timer);
-            strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", tm_info);
-            
-            // Reinitialize pointer and offset then display the updated timestamp.
+            if (counter == 0)
             {
-                char *p = timeStr;
+                // If counter is 0, update and display the timestamp.
+                time(&timer);
+                tm_info = localtime(&timer);
+                strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", tm_info);
+                {
+                    char *p = timeStr;
+                    unsigned int off = offset;
+                    while (*p) {
+                        *((volatile char *)(0xC9000000 + off)) = *p;
+                        p++;
+                        off++;
+                    }
+                }
+            }
+            else
+            {
+                // Otherwise, blank out the timestamp area (write 30 spaces).
+                int i = 0;
                 unsigned int off = offset;
-                while (*p) {
-                    *((volatile char *)(0xC9000000 + off)) = *p;
-                    p++;
+                while(i < 30) {
+                    *((volatile char *)(0xC9000000 + off)) = ' ';
+                    i++;
                     off++;
                 }
             }
         }
         
-        // When KEY2 is pressed, enable video and update the picture counter.
-        if ((*KEY_ptr) & 0x4)  // KEY2 pressed
+        // If KEY2 is pressed, enable video capture and update the counter.
+        if ((*KEY_ptr) & 0x4)
         {
             *(Video_In_DMA_ptr + 3) = 0x4;  // Enable video capture
-            
-            // Wait until KEY2 is released
+            // Wait until KEY2 is released.
             while ((*KEY_ptr) & 0x4);
             
             counter++;  // Increment picture counter
             
-            // Prepare the new counter string.
+            // Update the counter display.
             sprintf(counterStr, "Pics: %d", counter);
-            // Recompute offset for counter display at (x=10, y=20)
-            offset_counter = (20 << 7) + 10;
-            
-            // Reinitialize the pointer and display the new counter.
+            offset_counter = (20 << 7) + 10;  // Reset display offset for counter
             {
                 char *cp = counterStr;
                 unsigned int offc = offset_counter;
@@ -113,13 +120,6 @@ int main(void)
         }
     }
     
-    // (The following loop is never reached.)
-    for (y = 0; y < 240; y++) {
-        for (x = 0; x < 320; x++) {
-            short temp2 = *(Video_Mem_ptr + (y << 9) + x);
-            *(Video_Mem_ptr + (y << 9) + x) = temp2;
-        }
-    }
-    
+    // (This part of the code is never reached.)
     return 0;
 }
