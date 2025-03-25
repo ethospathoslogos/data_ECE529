@@ -14,10 +14,14 @@ int main(void)
     
     // Display coordinates for the character buffer:
     int x_timestamp = 10, y_timestamp = 10;  // Timestamp display area
-    int x_counter   = 10, y_counter   = 20;  // "Pics" counter display area
+    int x_counter   = 10, y_counter   = 20;   // "Pics" counter display area
     
-    // Mode counter: 0 => show timestamp, 1 => vertical flip, 2 => horizontal mirror.
-    // This counter is only incremented (via KEY2) and never reset.
+    // Mode counter:
+    // 0 => update timestamp,
+    // 1 => vertical flip,
+    // 2 => horizontal mirror,
+    // 5 => convert to black and white.
+    // (The counter is incremented via KEY2 and is not reset.)
     int counter = 0;
     
     // Initially, enable video capture.
@@ -45,7 +49,7 @@ int main(void)
         }
     }
     
-    // Display the initial counter ("Pics: 0") at row 20, col 10.
+    // Display the initial counter ("Pics: 0") at (10,20).
     char counterStr[20];
     sprintf(counterStr, "Pics: %d", counter);
     unsigned int offset_counter = (y_counter << 7) + x_counter;
@@ -62,18 +66,18 @@ int main(void)
     
     while (1)
     {
-        // When KEY3 is pressed, capture (freeze) the current frame and apply an effect.
+        // --- KEY3 branch: Capture (freeze) frame and apply effect ---
         if ((*KEY_ptr) & 0x8)  // KEY3 pressed
         {
-            // Disable video capture to freeze the frame.
+            // Disable video capture (freeze the frame).
             *(Video_In_DMA_ptr + 3) = 0x0;
             // Wait until KEY3 is released.
             while ((*KEY_ptr) & 0x8);
             
-            // Process the frozen image based on the current counter.
+            // Apply effect based on the current counter.
             if (counter == 0)
             {
-                // Mode 0: Update the timestamp.
+                // Mode 0: Update and display the timestamp.
                 unsigned int offset_timestamp = (y_timestamp << 7) + x_timestamp;
                 char timeStr[30];
                 time_t timer;
@@ -96,7 +100,7 @@ int main(void)
             {
                 // Mode 1: Flip the image vertically (upside down).
                 int row = 0;
-                while (row < 240)  // Process only the top half (0 to 239)
+                while (row < 240)  // Process top half (0 to 239)
                 {
                     int col = 0;
                     while (col < 640)
@@ -118,7 +122,7 @@ int main(void)
                 while (row < 480)
                 {
                     int col = 0;
-                    while (col < 320)  // Process only half the columns (0 to 319)
+                    while (col < 320)  // Process half the columns (0 to 319)
                     {
                         int index_left = row * 640 + col;
                         int index_right = row * 640 + (639 - col);
@@ -130,10 +134,47 @@ int main(void)
                     row++;
                 }
             }
-            // The processed image remains frozen (video remains disabled).
+            else if (counter == 5)
+            {
+                // Mode 5: Convert the image to black and white (grayscale).
+                int row = 0;
+                while (row < 480)
+                {
+                    int col = 0;
+                    while (col < 640)
+                    {
+                        int index = row * 640 + col;
+                        short pixel = *(Video_Mem_ptr + index);
+                        
+                        // Extract RGB565 components.
+                        int red   = (pixel >> 11) & 0x1F;
+                        int green = (pixel >> 5)  & 0x3F;
+                        int blue  = pixel & 0x1F;
+                        
+                        // Convert to 8-bit per channel.
+                        int r8 = (red * 255) / 31;
+                        int g8 = (green * 255) / 63;
+                        int b8 = (blue * 255) / 31;
+                        
+                        // Compute grayscale using weighted average.
+                        int gray8 = (77 * r8 + 150 * g8 + 29 * b8) / 256;
+                        
+                        // Convert back to RGB565.
+                        int new_red   = (gray8 * 31) / 255;
+                        int new_green = (gray8 * 63) / 255;
+                        int new_blue  = (gray8 * 31) / 255;
+                        short new_pixel = (new_red << 11) | (new_green << 5) | new_blue;
+                        
+                        *(Video_Mem_ptr + index) = new_pixel;
+                        col++;
+                    }
+                    row++;
+                }
+            }
+            // After applying the effect, the video remains disabled (frozen image).
         }
         
-        // When KEY2 is pressed, re-enable video capture and increment the counter.
+        // --- KEY2 branch: Re-enable video and update counter ---
         if ((*KEY_ptr) & 0x4)  // KEY2 pressed
         {
             // Re-enable video capture.
